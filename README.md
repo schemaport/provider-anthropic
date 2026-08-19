@@ -35,9 +35,9 @@ const tool = {
   },
 };
 
-anthropicProvider.check(tool);        // Diagnostic[]
-anthropicProvider.compile(tool);      // CompileResult, `output` goes straight into `tools`
-await anthropicProvider.probe(tool);  // ProbeResult (needs ANTHROPIC_API_KEY)
+anthropicProvider.check(tool);          // Diagnostic[]
+anthropicProvider.compile(tool);        // CompileResult, `output` goes straight into `tools`
+await anthropicProvider.probe?.(tool);  // ProbeResult (needs ANTHROPIC_API_KEY)
 ```
 
 `compile().output` is the Anthropic tool object:

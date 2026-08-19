@@ -80,6 +80,23 @@ describe('transformations', () => {
     expect(output.input_schema.type).toBe('object');
   });
 
+  it('adds the root type even when the schema carries an explicit undefined type', () => {
+    const result = anthropicProvider.compile({
+      name: 'explicit_undefined_type',
+      description: 'The type key exists but holds undefined.',
+      inputSchema: { type: undefined, properties: { id: { type: 'string' } }, required: ['id'] },
+    });
+
+    expect(result.ok).toBe(true);
+    const output = result.output as { input_schema: Record<string, unknown> };
+    expect(output.input_schema['type']).toBe('object');
+    expect(JSON.parse(JSON.stringify(output.input_schema))).toEqual({
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+    });
+  });
+
   it('never emits a lossy transformation for any fixture', () => {
     const tools = [...Object.values(FIXTURE_TOOLS), untypedRootTool];
     for (const tool of tools) {

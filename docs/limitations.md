@@ -72,6 +72,13 @@ receive a 400 error with details", but joining that to "absent from the
 supported list" is a two-step inference. These are reported as "not documented
 as supported", not as rejections.
 
+**Union `type` arrays** (`"type": ["string", "null"]`) are also absent from both
+lists. They are passed through untouched and are *not* flagged. Anthropic's
+`enum` support explicitly includes nulls and `anyOf` is documented as supported,
+so a type array is not obviously outside the subset — but neither is it
+documented as inside it. No rule is emitted rather than guessing; the
+tool-level `anthropic/schema-not-enforced` warning still applies.
+
 ## Not implemented
 
 Behaviour this package deliberately does not model, because the documentation
@@ -101,3 +108,9 @@ does not support a rule:
   a note.
 - Argument validation uses `@schemaport/core`'s `validateValue`, which does not
   resolve `$ref` and does not check `format`.
+- The probe sends `tool_choice: { type: 'tool', name: … }` so that a call is
+  always produced. Core's `classifyProviderError` maps any 400/422 that does not
+  mention a missing model to `rejected`, so a 400 caused by the *forced tool
+  choice* rather than the schema — for example a model that does not support
+  forced tool use — would be reported as a schema rejection. Cross-check a
+  `rejected` verdict's `providerError.message` before acting on it.

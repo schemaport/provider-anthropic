@@ -35,7 +35,9 @@ From code:
 ```ts
 import { anthropicProvider } from '@schemaport/provider-anthropic';
 
-const result = await anthropicProvider.probe(tool, {
+// `probe` is optional on `SchemaPortProvider`, so call it with `?.`
+// (or import `probeToolWithAnthropic` directly for a non-optional binding).
+const result = await anthropicProvider.probe?.(tool, {
   apiKey: process.env.ANTHROPIC_API_KEY,
   model: 'claude-haiku-4-5',
   timeoutMs: 20_000,
@@ -118,7 +120,7 @@ const client = {
   },
 };
 
-await anthropicProvider.probe(tool, { client });
+await anthropicProvider.probe?.(tool, { client });
 ```
 
 No test in this repository makes a network request.

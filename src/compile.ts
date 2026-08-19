@@ -50,7 +50,15 @@ export function compileTool(tool: CanonicalTool, options?: CompileOptions): Comp
   );
 
   if (schemaTypes(inputSchema).length === 0) {
-    inputSchema = { type: 'object', ...inputSchema };
+    // Built key by key rather than spread over a literal: an explicit
+    // `type: undefined` key survives structuredClone and a spread would
+    // overwrite the added type back to undefined.
+    const typed: JsonSchema = { type: 'object' };
+    for (const [keyword, value] of Object.entries(inputSchema)) {
+      if (keyword === 'type') continue;
+      typed[keyword] = value;
+    }
+    inputSchema = typed;
     transformations.push(
       transformation(
         TRANSFORMATIONS.addedInputSchemaType,
