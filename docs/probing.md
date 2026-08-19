@@ -1,0 +1,124 @@
+# Probing the Anthropic API
+
+`probe()` sends the compiled tool definition to the Messages API and reports
+whether Anthropic accepted it. Reviewed **2026-08-20**.
+
+It never executes your function. It sends one short synthetic user message
+asking the model to produce a single placeholder call, and inspects the
+arguments.
+
+## Setup
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Then:
+
+```bash
+schemaport probe --target anthropic ./tools/refund_order.json
+```
+
+Override the model:
+
+```bash
+# per run
+schemaport probe --target anthropic --model claude-sonnet-5 ./tools/refund_order.json
+
+# for the shell session
+export SCHEMAPORT_ANTHROPIC_MODEL=claude-sonnet-5
+schemaport probe --target anthropic ./tools/refund_order.json
+```
+
+From code:
+
+```ts
+import { anthropicProvider } from '@schemaport/provider-anthropic';
+
+const result = await anthropicProvider.probe(tool, {
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  model: 'claude-haiku-4-5',
+  timeoutMs: 20_000,
+});
+```
+
+## Model selection
+
+| | Value |
+|---|---|
+| Default model | `claude-haiku-4-5` |
+| Environment override | `SCHEMAPORT_ANTHROPIC_MODEL` |
+| Option override | `options.model` |
+
+Resolution order is `options.model` → `SCHEMAPORT_ANTHROPIC_MODEL` → default,
+via `resolveProbeModel` from `@schemaport/core`.
+
+The default comes from the official
+[Models overview](https://platform.claude.com/docs/en/about-claude/models/overview)
+"Latest models comparison" table: Claude Haiku 4.5 is the cheapest currently
+available model at $1 / input MTok and $5 / output MTok, and it supports tool
+use. `claude-haiku-4-5` is the documented alias for
+`claude-haiku-4-5-20251001`.
+
+## What is sent
+
+| Field | Value |
+|---|---|
+| `model` | resolved as above |
+| `max_tokens` | `1024` — required by the Messages API; kept small |
+| `messages` | one user turn from `probePrompt(tool)` |
+| `tools` | `[compile(tool).output]` |
+| `tool_choice` | `{ type: 'tool', name: <tool name> }`, so a call is produced |
+
+No real data is ever sent. `probePrompt` asks for placeholder values and says
+the call will not be executed.
+
+## Results
+
+| Outcome | `status` | `errorKind` |
+|---|---|---|
+| Tool definition accepted | `accepted` | — |
+| Anthropic returned 400/422 on the request body | `rejected` | — |
+| No API key found | `error` | `missing-credentials` |
+| 401 / 403 | `error` | `authentication` |
+| 404 (unknown model) | `error` | `model-not-found` |
+| 429 | `error` | `rate-limit` |
+| Connection failure, timeout, 5xx | `error` | `network` |
+| Compilation was refused, nothing sent | `error` | `compile-refused` |
+
+Only `rejected` means Anthropic refused the schema. Everything else is an
+environment problem and is reported as such — a stale model id never shows up as
+a bad schema.
+
+On acceptance, any returned tool-call arguments are validated against the
+**canonical** input schema, not the compiled one. That is what makes Anthropic's
+lack of default enforcement observable: `status: 'accepted'` with
+`argumentsValid: false` means the API took the schema and the model ignored part
+of it.
+
+Two responses are treated as accepted with no arguments inspected:
+
+- `stop_reason: 'max_tokens'` — the tool input may be half-written, and
+  reporting a truncated object would look identical to a genuine violation.
+- `stop_reason: 'refusal'` — the model declined; the schema was still accepted.
+
+## Testing
+
+`options.client` is a test seam. When supplied, the adapter uses it and never
+constructs an SDK client or reads `ANTHROPIC_API_KEY`. It only needs a
+`messages.create(body, options?)`:
+
+```ts
+const client = {
+  messages: {
+    create: async (body) => ({
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', name: 'refund_order', input: { orderId: 'ord_1' } }],
+    }),
+  },
+};
+
+await anthropicProvider.probe(tool, { client });
+```
+
+No test in this repository makes a network request.
