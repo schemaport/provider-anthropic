@@ -23,7 +23,8 @@ So for a tool compiled by this package:
 | `type` | yes | no |
 | `required` | yes | no |
 | `enum`, `const` | yes | no |
-| `minimum`, `maxLength`, `pattern`, … | yes | no |
+| `minimum`, `maximum`, `maxLength`, `minLength`, … | yes | no |
+| `pattern` | yes | unknown — see below |
 
 `check()` reports this as `anthropic/schema-not-enforced` on every tool whose
 root schema declares at least one property or required property. It is a
