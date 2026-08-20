@@ -16,18 +16,18 @@ export ANTHROPIC_API_KEY=sk-ant-...
 Then:
 
 ```bash
-schemaport probe --target anthropic ./tools/refund_order.json
+schemaport probe --targets anthropic ./tools/refund_order.json
 ```
 
 Override the model:
 
 ```bash
 # per run
-schemaport probe --target anthropic --model claude-sonnet-5 ./tools/refund_order.json
+schemaport probe --targets anthropic --model claude-sonnet-5 ./tools/refund_order.json
 
 # for the shell session
 export SCHEMAPORT_ANTHROPIC_MODEL=claude-sonnet-5
-schemaport probe --target anthropic ./tools/refund_order.json
+schemaport probe --targets anthropic ./tools/refund_order.json
 ```
 
 From code:
