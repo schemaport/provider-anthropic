@@ -111,6 +111,14 @@ constraints, and you should keep validating server-side either way. If your
 schema is mostly types, enums, required properties and closed objects, strict
 mode is close to free.
 
+### Strict mode is not on the command line
+
+`strict` is an option on this package's `compile()` and `probe()`. The
+`schemaport` CLI does not have a `--strict` flag: it calls
+`provider.compile(tool, { allowLossy })`, so every CLI compile emits the default
+form. Reaching strict mode means calling the provider from code. Adding the flag
+is a change to the CLI package, which this one does not control.
+
 ### What SchemaPort will not do for you
 
 Strict compilation drops **only** the keywords the documentation lists as

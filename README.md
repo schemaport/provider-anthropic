@@ -140,6 +140,12 @@ mode, with a warning saying SchemaPort cannot tell you whether Anthropic accepts
 them. Dropping a keyword the documentation does not reject would destroy a
 constraint for a reason this package cannot cite.
 
+Strict mode is a **library-level option**. The `schemaport` CLI has no
+`--strict` flag: its `compile` command calls `compile(tool, { allowLossy })` and
+nothing else, so `schemaport compile --targets anthropic` still emits the
+default form. Exposing the option on the command line is a change to the CLI
+package, not this one.
+
 Everything above is documented in detail, with sources, in
 [docs/limitations.md](docs/limitations.md).
 
