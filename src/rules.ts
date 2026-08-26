@@ -212,13 +212,6 @@ export const TRANSFORMATIONS = {
   requiredEveryProperty: 'required-every-property',
 } as const;
 
-/** Transformation codes emitted only under `strict: true` that are lossy. */
-export const STRICT_LOSSY_TRANSFORMATIONS: readonly string[] = Object.freeze([
-  TRANSFORMATIONS.droppedNumericConstraint,
-  TRANSFORMATIONS.droppedStringConstraint,
-  TRANSFORMATIONS.droppedArrayConstraint,
-  TRANSFORMATIONS.droppedAdditionalPropertiesSchema,
-]);
 
 /**
  * Whether a subschema describes a JSON object, and therefore falls under the

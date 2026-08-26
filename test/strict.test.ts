@@ -18,6 +18,7 @@ import {
 
 import {
   CODES,
+  STRICT_DROPPED_KEYWORDS,
   STRICT_ONLY_CODES,
   TRANSFORMATIONS,
   anthropicProvider,
@@ -516,20 +517,21 @@ describe('every shared fixture, in both modes', () => {
   });
 
   it('never leaves a rejected keyword in strict output', () => {
-    const rejected = [
-      'minimum',
-      'maximum',
-      'exclusiveMinimum',
+    expect([...STRICT_DROPPED_KEYWORDS].sort()).toEqual([
       'exclusiveMaximum',
-      'multipleOf',
-      'minLength',
-      'maxLength',
+      'exclusiveMinimum',
       'maxItems',
+      'maxLength',
+      'maximum',
+      'minLength',
+      'minimum',
+      'multipleOf',
       'uniqueItems',
-    ];
+    ]);
+
     for (const [key, tool] of Object.entries(FIXTURE_TOOLS)) {
       const serialized = JSON.stringify(strictLossy(tool).output);
-      for (const keyword of rejected) {
+      for (const keyword of STRICT_DROPPED_KEYWORDS) {
         expect(serialized.includes(`"${keyword}"`), `${key} still carries ${keyword}`).toBe(false);
       }
       expect(serialized).not.toMatch(/"minItems":\s*(?![01][,}])/);
