@@ -2,7 +2,56 @@ import { describe, expect, it } from 'vitest';
 import { FIXTURE_TOOLS, isLossy, minimalTool, openMapTool, refundOrderTool } from '@schemaport/core';
 
 import { CODES, TRANSFORMATIONS, anthropicProvider } from '../src/index.js';
+import { MAIN_COMPILE_OUTPUT, MAIN_DIAGNOSTIC_SHAPE, MAIN_TRANSFORMATIONS } from './baseline-main.js';
 import { dottedNameTool, stringRootTool, untypedRootTool } from './fixtures.js';
+
+/**
+ * The default path is a compatibility surface: the CLI calls `compile(tool)`
+ * with no options, so adding strict mode must not move a single byte of what it
+ * emits. These assertions run against output captured from `main`.
+ */
+describe('the default path is unchanged', () => {
+  it('emits byte-identical output for every shared fixture', () => {
+    for (const [key, tool] of Object.entries(FIXTURE_TOOLS)) {
+      const result = anthropicProvider.compile(tool);
+      expect(JSON.stringify(result.output), key).toBe(JSON.stringify(MAIN_COMPILE_OUTPUT[key]));
+    }
+  });
+
+  it('emits the same transformations', () => {
+    for (const [key, tool] of Object.entries(FIXTURE_TOOLS)) {
+      const actual = anthropicProvider
+        .compile(tool)
+        .transformations.map((t) => `${t.code} ${t.path} lossy=${String(t.lossy)}`);
+      expect(actual, key).toEqual(MAIN_TRANSFORMATIONS[key]);
+    }
+  });
+
+  it('fires the same rules, at the same paths, at the same severities', () => {
+    for (const [key, tool] of Object.entries(FIXTURE_TOOLS)) {
+      const actual = anthropicProvider
+        .compile(tool)
+        .diagnostics.map((d) => `${d.severity} ${d.code} ${d.path}`);
+      expect(actual, key).toEqual(MAIN_DIAGNOSTIC_SHAPE[key]);
+    }
+  });
+
+  it('is unaffected by passing `strict: false` explicitly', () => {
+    for (const tool of Object.values(FIXTURE_TOOLS)) {
+      const implicit = anthropicProvider.compile(tool);
+      const explicit = anthropicProvider.compile(tool, { strict: false });
+      expect(JSON.stringify(explicit)).toBe(JSON.stringify(implicit));
+    }
+  });
+
+  it('still reports that nothing is enforced, now saying SchemaPort can fix that', () => {
+    const warning = anthropicProvider
+      .compile(refundOrderTool)
+      .diagnostics.find((d) => d.code === CODES.schemaNotEnforced);
+    expect(warning?.message).toContain('strict: true');
+    expect(warning?.message).toContain('SchemaPort can');
+  });
+});
 
 describe('compile', () => {
   it('compiles the PRD example without --allow-lossy', () => {

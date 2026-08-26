@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { refundOrderTool } from '@schemaport/core';
+import { minimalTool, refundOrderTool } from '@schemaport/core';
 
 import { DEFAULT_PROBE_MODEL, PROBE_MODEL_ENV_VAR, anthropicProvider } from '../src/index.js';
 import { dottedNameTool } from './fixtures.js';
@@ -225,5 +225,97 @@ describe('compile gate', () => {
     expect(result?.status).toBe('error');
     expect(result?.errorKind).toBe('compile-refused');
     expect(client.calls).toHaveLength(0);
+  });
+});
+
+describe('strict probes', () => {
+  it('sends the default, non-strict definition unless asked', async () => {
+    const client = stubClient(() => toolUseResponse({ orderId: 'ord_1' }));
+    await probe?.(refundOrderTool, { client });
+
+    const tools = client.calls[0]?.body['tools'] as { strict?: unknown }[];
+    expect(tools[0]?.strict).toBeUndefined();
+  });
+
+  it('sends the strict definition when asked, with allowLossy', async () => {
+    const client = stubClient(() => toolUseResponse({ orderId: 'ord_1', amount: 5 }));
+    const result = await probe?.(refundOrderTool, { client, strict: true, allowLossy: true });
+
+    expect(result?.status).toBe('accepted');
+    expect(client.calls[0]?.body['tools']).toEqual([
+      anthropicProvider.compile(refundOrderTool, { strict: true, allowLossy: true }).output,
+    ]);
+    const tools = client.calls[0]?.body['tools'] as { strict?: unknown }[];
+    expect(tools[0]?.strict).toBe(true);
+  });
+
+  it('refuses to send a strict schema whose losses the caller has not accepted', async () => {
+    const client = stubClient(() => toolUseResponse({ orderId: 'ord_1' }));
+    const result = await probe?.(refundOrderTool, { client, strict: true });
+
+    expect(result?.status).toBe('error');
+    expect(result?.errorKind).toBe('compile-refused');
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it('probes a strict schema that needs no allowLossy', async () => {
+    const client = stubClient(() => ({
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', name: 'ping', input: {} }],
+    }));
+    const result = await probe?.(minimalTool, { client, strict: true });
+
+    expect(result?.status).toBe('accepted');
+    expect(client.calls).toHaveLength(1);
+  });
+
+  it('reports a 400 on the strict definition as a schema rejection', async () => {
+    const client = throwingClient({
+      status: 400,
+      error: {
+        type: 'invalid_request_error',
+        message: 'tools.0.input_schema: strict mode does not support `pattern`.',
+      },
+    });
+    const result = await probe?.(refundOrderTool, { client, strict: true, allowLossy: true });
+
+    expect(result?.status).toBe('rejected');
+    expect(result?.schemaAccepted).toBe(false);
+    expect(result?.providerError?.status).toBe(400);
+  });
+
+  it('still classifies environment failures as environment failures under strict', async () => {
+    const client = throwingClient({
+      status: 404,
+      error: { type: 'not_found_error', message: 'model: claude-nope-1' },
+    });
+    const result = await probe?.(refundOrderTool, {
+      client,
+      strict: true,
+      allowLossy: true,
+      model: 'claude-nope-1',
+    });
+
+    expect(result?.status).toBe('error');
+    expect(result?.errorKind).toBe('model-not-found');
+  });
+
+  it('validates arguments against the canonical schema, not the reduced strict one', async () => {
+    // `minimum: 0` cannot survive strict compilation, so Anthropic cannot
+    // enforce it — but core still checks the returned value against the
+    // canonical schema, which is exactly how the cost of strict mode shows up.
+    const client = stubClient(() => toolUseResponse({ orderId: 'ord_1', amount: -5 }));
+    const result = await probe?.(refundOrderTool, { client, strict: true, allowLossy: true });
+
+    expect(result?.status).toBe('accepted');
+    expect(result?.argumentsValid).toBe(false);
+    expect(result?.argumentErrors?.length).toBeGreaterThan(0);
+  });
+
+  it('never reads the environment when a client seam is supplied', async () => {
+    const client = stubClient(() => toolUseResponse({ orderId: 'ord_1' }));
+    const result = await probe?.(refundOrderTool, { client, strict: true, allowLossy: true });
+    expect(result?.status).toBe('accepted');
+    expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
   });
 });

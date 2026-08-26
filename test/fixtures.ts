@@ -80,3 +80,40 @@ export const externalRefTool: CanonicalTool = {
     $defs: { localId: { type: 'string' } },
   },
 };
+
+/** An object that explicitly accepts undeclared keys. Strict mode closes it. */
+export const openObjectTool: CanonicalTool = {
+  name: 'open_object',
+  description: 'Accepts undeclared keys, which the strict subset does not allow.',
+  inputSchema: {
+    type: 'object',
+    properties: { id: { type: 'string' } },
+    required: ['id'],
+    additionalProperties: true,
+  },
+};
+
+/** Already closed and already fully required: strict mode has nothing to change. */
+export const closedTool: CanonicalTool = {
+  name: 'closed_object',
+  description: 'Already in the shape the strict subset requires.',
+  inputSchema: {
+    type: 'object',
+    properties: { id: { type: 'string' } },
+    required: ['id'],
+    additionalProperties: false,
+  },
+};
+
+/** A local `$ref`, which strict mode cannot prove is non-recursive. */
+export const localRefTool: CanonicalTool = {
+  name: 'local_ref',
+  description: 'References a definition inside the same document.',
+  inputSchema: {
+    type: 'object',
+    properties: { id: { $ref: '#/$defs/localId' } },
+    required: ['id'],
+    additionalProperties: false,
+    $defs: { localId: { type: 'string' } },
+  },
+};
