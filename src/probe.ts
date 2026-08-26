@@ -27,6 +27,24 @@ import {
  * Declared structurally so `options.client` can be any object with a
  * `messages.create`, and tests never need a full SDK instance.
  */
+/**
+ * `ProbeOptions` plus the same Anthropic-specific knob `compile()` takes.
+ *
+ * Optional, so `anthropicProvider` stays assignable to `SchemaPortProvider`
+ * and the CLI's `provider.probe(tool, options)` call site is unaffected.
+ */
+export interface AnthropicProbeOptions extends ProbeOptions {
+  /**
+   * Probe the strict form: compile with `{ strict: true }` and send the
+   * resulting `strict: true` tool definition.
+   *
+   * Strict compilation is lossy for any schema carrying a keyword the strict
+   * subset rejects, so this usually needs `allowLossy: true` as well — without
+   * it the probe refuses before sending anything, exactly as `compile()` does.
+   */
+  strict?: boolean;
+}
+
 export interface AnthropicMessagesClient {
   messages: {
     create(body: unknown, options?: unknown): Promise<unknown>;
@@ -51,14 +69,26 @@ interface ToolUseBlockShape {
  * synthetic call with placeholder values and inspects the arguments. Core then
  * validates them against the *canonical* schema, which is what makes
  * Anthropic's lack of default enforcement observable rather than theoretical.
+ *
+ * With `{ strict: true }` the probe answers a different and more interesting
+ * question: does Anthropic accept the *strict* definition? A 400 there is a
+ * real signal, because the strict subset is the one Anthropic actually
+ * validates against. Arguments are still checked against the canonical schema,
+ * so a strict probe can also show a constraint the strict subset made SchemaPort
+ * drop being violated at runtime.
  */
 export async function probeToolWithAnthropic(
   tool: CanonicalTool,
-  options: ProbeOptions = {},
+  options: AnthropicProbeOptions = {},
 ): Promise<ProbeResult> {
   const base = { providerId: PROVIDER_ID, toolName: tool.name };
 
-  const compiled = compileTool(tool, { allowLossy: options.allowLossy ?? false });
+  // Compile first, always. A schema that would not compile is never sent —
+  // including a strict schema whose lossy drops the caller has not accepted.
+  const compiled = compileTool(tool, {
+    allowLossy: options.allowLossy ?? false,
+    strict: options.strict ?? false,
+  });
   if (!compiled.ok || compiled.output === undefined) {
     return probeCompileRefused(base, compiled);
   }
