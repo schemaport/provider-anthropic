@@ -44,6 +44,46 @@ const result = await anthropicProvider.probe?.(tool, {
 });
 ```
 
+## Probing the strict form
+
+`probe()` takes the same `strict` option `compile()` does, so you can ask the
+more interesting question: does Anthropic accept the tool definition it will
+actually validate against?
+
+```ts
+const result = await anthropicProvider.probe?.(tool, {
+  strict: true,
+  allowLossy: true,  // strict compilation is lossy for most real schemas
+});
+```
+
+Everything the default probe guarantees still holds. In particular **compilation
+happens first**: if strict compilation would be refused — because the schema
+carries a keyword the strict subset rejects and you did not pass `allowLossy` —
+the probe returns `status: 'error'`, `errorKind: 'compile-refused'` and sends
+nothing. A schema SchemaPort would not compile is never put on the wire.
+
+Two things make a strict probe worth running:
+
+- A `rejected` verdict is a much stronger signal than in the default mode. The
+  default path accepts nearly anything, so a 400 there is rare; the strict
+  subset is the one Anthropic actually validates, so a 400 there usually means
+  a real keyword problem. The prime suspects are the keywords SchemaPort keeps
+  because the documentation does not classify them — `pattern`, `oneOf`, `not`,
+  `prefixItems`, `minProperties`, `maxProperties`, union `type` arrays — and a
+  recursive `$ref`, which is documented as unsupported under strict mode.
+  Read `providerError.message`: it names the offending feature.
+- Returned arguments are still validated against the **canonical** schema, not
+  the reduced strict one. So `status: 'accepted'` with `argumentsValid: false`
+  under strict mode is the cost of strict mode made visible: Anthropic honoured
+  the schema it was given, and the constraint it violated is one SchemaPort had
+  to drop to get there.
+
+A strict probe against a model that does not support `strict: true` will come
+back as `rejected`. SchemaPort does not keep a list of strict-capable models, so
+it cannot tell that apart from a schema problem — cross-check
+`providerError.message` before concluding the schema is at fault.
+
 ## Model selection
 
 | | Value |
@@ -69,7 +109,7 @@ use. `claude-haiku-4-5` is the documented alias for
 | `model` | resolved as above |
 | `max_tokens` | `1024` — required by the Messages API; kept small |
 | `messages` | one user turn from `probePrompt(tool)` |
-| `tools` | `[compile(tool).output]` |
+| `tools` | `[compile(tool, { strict }).output]` — carries `strict: true` only when asked |
 | `tool_choice` | `{ type: 'tool', name: <tool name> }`, so a call is produced |
 
 No real data is ever sent. `probePrompt` asks for placeholder values and says
@@ -87,6 +127,10 @@ the call will not be executed.
 | 429 | `error` | `rate-limit` |
 | Connection failure, timeout, 5xx | `error` | `network` |
 | Compilation was refused, nothing sent | `error` | `compile-refused` |
+
+`compile-refused` covers the strict case too: `probe(tool, { strict: true })`
+without `allowLossy` refuses before any request is made, for any schema carrying
+a keyword the strict subset rejects.
 
 Only `rejected` means Anthropic refused the schema. Everything else is an
 environment problem and is reported as such — a stale model id never shows up as
