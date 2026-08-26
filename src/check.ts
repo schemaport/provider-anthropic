@@ -355,13 +355,17 @@ function checkStrictSubschema(schema: JsonSchema, path: string, add: Add): void 
 }
 
 /**
- * The strict subset's object requirements: `additionalProperties: false`, and
- * every declared property listed in `required`.
+ * The strict subset's object requirements.
  *
- * Two of the three cases produce a pair of diagnostics — an `error` saying the
- * canonical schema cannot be sent as written, which disappears once compile has
- * worked around it, and a `warning` recording what changed at runtime, which
- * survives into the compile result.
+ * `additionalProperties: false` is documented, and follows the two-diagnostic
+ * pattern: an `error` saying the canonical schema cannot be sent as written,
+ * which disappears once compile has worked around it, and a `warning` recording
+ * what changed at runtime, which survives into the compile result.
+ *
+ * Listing every declared property in `required` is **not** documented — see the
+ * message below. It is a choice this package makes, so it gets a plain warning
+ * and no error: claiming Anthropic rejects an optional property would be a
+ * guarantee SchemaPort cannot cite.
  */
 function checkStrictObject(schema: JsonSchema, path: string, add: Add): void {
   if (!isObjectSchema(schema)) return;
@@ -371,27 +375,18 @@ function checkStrictObject(schema: JsonSchema, path: string, add: Add): void {
 
   for (const name of Object.keys(properties)) {
     if (required.includes(name)) continue;
-    const at = joinPath(path, 'properties', name);
-
-    add({
-      severity: 'error',
-      code: CODES.strictOptionalProperty,
-      message:
-        `\`${name}\` is optional. Anthropic's strict subset requires every declared property to be listed ` +
-        'in `required`, so the schema cannot be sent as written.',
-      path: at,
-      compile: compilable(`Lists \`${name}\` in \`required\`.`),
-      docsUrl: DOCS.jsonSchemaLimitations,
-    });
 
     add({
       severity: 'warning',
       code: CODES.strictAlwaysPresentProperty,
       message:
-        `After strict compilation \`${name}\` is required, so the model must always send it. Callers that ` +
-        'relied on it being absent will now always receive a value. Strict mode has no way to express an ' +
-        'optional property.',
-      path: at,
+        `Strict compilation lists \`${name}\` in \`required\`, so the model must always send it — callers ` +
+        'that treated its absence as meaningful will now always receive a value. Be aware this is ' +
+        "SchemaPort's own choice, not a documented Anthropic rule: the object requirement SchemaPort can " +
+        'cite for the strict subset is `additionalProperties: false`, and no reviewed page says an optional ' +
+        'property is rejected. It is applied because the strict subset has no documented way to express ' +
+        'optionality — treat that as uncertain, not as a guarantee.',
+      path: joinPath(path, 'properties', name),
       compile: compilable(`Emits \`${name}\` as required; it is never omitted.`),
       docsUrl: DOCS.jsonSchemaLimitations,
     });

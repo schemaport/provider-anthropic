@@ -80,18 +80,26 @@ Adding `allowLossy` compiles it and records what was given up. See
 
 ### What strict mode adds
 
-Strict compilation also applies the subset's object requirements: every object
-gets `additionalProperties: false`, and every declared property is listed in
-`required`. Neither is lossy — no canonical constraint stops being enforced —
-but both change what the model emits at runtime, so both are warned about:
+Strict compilation also closes every object with `additionalProperties: false`,
+which the subset documents, and lists every declared property in `required`.
+Neither is lossy — no canonical constraint stops being enforced — but both
+change what the model emits at runtime, so both are warned about:
 
 - `anthropic/strict-always-present-property` — an optional property is now
-  required, so the model will always send it. The strict subset has no way to
-  express an optional property. **This is the change most likely to surprise
-  you**, and it is not gated by `allowLossy`, because SchemaPort's lossy gate
-  is about the schema getting *weaker*, not stricter.
+  required, so the model will always send it. **This is the change most likely
+  to surprise you**, and it is not gated by `allowLossy`, because SchemaPort's
+  lossy gate is about the schema getting *weaker*, not stricter.
 - `anthropic/strict-closed-open-object` — an object that declared
   `additionalProperties: true` no longer accepts undeclared keys.
+
+One honest caveat about the first of those. Every other strict rule in this
+package quotes a documented "Not supported" entry. This one does not: the
+reviewed pages give `additionalProperties: false` as the strict subset's object
+requirement and say **nothing** about optional properties. SchemaPort lists
+every property in `required` because the subset has no documented way to express
+optionality — but it does not claim Anthropic would reject the schema otherwise,
+and the warning text says as much. If you need optional properties preserved,
+the default form is the one that keeps them.
 
 ### Which one do you want?
 

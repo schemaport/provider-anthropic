@@ -34,12 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dropped-additional-properties-schema`, `closed-open-object`,
   `added-additional-properties-false`, `required-every-property`. Only the four
   `dropped-*` codes are lossy.
-- Nine strict-only diagnostics, none of them emitted when strict is off:
+- Eight strict-only diagnostics, none of them emitted when strict is off:
   `anthropic/strict-drops-numeric-constraint`,
   `anthropic/strict-drops-string-constraint`,
   `anthropic/strict-drops-array-constraint`,
   `anthropic/strict-drops-additional-properties`,
-  `anthropic/strict-optional-property`,
   `anthropic/strict-always-present-property`,
   `anthropic/strict-closed-open-object`,
   `anthropic/strict-keyword-undocumented`, `anthropic/strict-local-ref`.
@@ -49,6 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `errorKind: 'compile-refused'`.
 - `check(tool, { strict: true })` returns the strict rule set. `check(tool)` is
   unchanged.
+
+### Known gap
+
+- Strict compilation lists every declared property in `required`. That is the
+  one strict rule this package cannot cite a documented line for: the reviewed
+  pages give `additionalProperties: false` as the strict subset's object
+  requirement and say nothing about optional properties. The behaviour is
+  applied, labelled as SchemaPort's own choice in
+  `anthropic/strict-always-present-property`, and recorded as a gap in
+  `docs/sources.md` rather than dressed up with a citation.
 - Exports: `STRICT_ONLY_CODES`, `STRICT_DROPPED_KEYWORDS`,
   `STRICT_REJECTED_KEYWORDS`.
 

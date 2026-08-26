@@ -170,14 +170,21 @@ function transformKeyword(keyword: string, value: unknown, path: string, ctx: Co
 }
 
 /**
- * Apply the strict subset's two object requirements: `additionalProperties`
- * set to `false`, and every declared property listed in `required`.
+ * Apply the strict subset's object requirements: `additionalProperties` set to
+ * `false`, and every declared property listed in `required`.
  *
  * Closing an object that declared nothing about extra keys is a representation
  * change — the canonical schema was already closed in practice — so it is not
  * lossy. Replacing a *typed* `additionalProperties` map with `false` destroys a
  * documented capability of the tool and is recorded lossy, matching how the
  * OpenAI provider classifies the same rewrite.
+ *
+ * The `required` half is the one rule here whose source this repository's
+ * research does not record: `additionalProperties: false` is quoted, "every
+ * property must be required" is not. It is applied anyway because the strict
+ * subset has no documented way to express an optional property, and
+ * `anthropic/strict-always-present-property` says plainly that this is
+ * SchemaPort's choice rather than a cited API rule. See docs/sources.md.
  */
 function closeObject(
   out: Record<string, unknown>,
@@ -199,7 +206,7 @@ function closeObject(
         ctx,
         TRANSFORMATIONS.requiredEveryProperty,
         joinPath(path, 'required'),
-        `Listed ${added.map((name) => `\`${name}\``).join(', ')} in \`required\`; the strict subset has no optional properties. The model must now always send ${added.length === 1 ? 'it' : 'them'}.`,
+        `Listed ${added.map((name) => `\`${name}\``).join(', ')} in \`required\`; the strict subset has no documented way to express an optional property. The model must now always send ${added.length === 1 ? 'it' : 'them'}.`,
         false,
       );
     }

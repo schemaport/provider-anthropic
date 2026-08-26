@@ -98,7 +98,10 @@ anthropicProvider.compile(tool, { strict: true });
 
 emits the enforced form: `strict: true` on the tool definition, every object
 closed with `additionalProperties: false`, and every declared property listed in
-`required`.
+`required`. (The closed-object requirement is documented; listing every property
+in `required` is SchemaPort's own choice, because the strict subset has no
+documented way to express an optional property. The
+`anthropic/strict-always-present-property` warning says so.)
 
 It costs constraints. The strict subset rejects a documented set of keywords
 with a 400, so strict compilation **drops** them:
@@ -184,7 +187,6 @@ Strict-mode only — emitted by `check(tool, { strict: true })` and
 | `anthropic/strict-drops-string-constraint` | error (compile fix is lossy) |
 | `anthropic/strict-drops-array-constraint` | error (compile fix is lossy) |
 | `anthropic/strict-drops-additional-properties` | error (lossy for a typed map) |
-| `anthropic/strict-optional-property` | error (compile fixes it) |
 | `anthropic/strict-always-present-property` | warning |
 | `anthropic/strict-closed-open-object` | warning |
 | `anthropic/strict-keyword-undocumented` | warning |

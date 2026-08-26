@@ -183,15 +183,20 @@ flagged.
 ## Strict-mode rules
 
 These fire **only** for `check(tool, { strict: true })` and
-`compile(tool, { strict: true })`. Every one of them is derived from the same
-"Not supported" list in [limitations.md](limitations.md#strict-true-is-available-and-it-costs-constraints);
-none is derived from absence.
+`compile(tool, { strict: true })`. All but two are derived from the
+"Not supported" list in [limitations.md](limitations.md#strict-true-is-available-and-it-costs-constraints).
+The exceptions are `anthropic/strict-keyword-undocumented` and
+`anthropic/strict-local-ref`, which report *uncertainty* rather than a rule, and
+`anthropic/strict-always-present-property`, whose source is a choice this
+package makes rather than a page it can cite — each says so in its own message.
 
-The rejected-keyword rules follow SchemaPort's two-diagnostic pattern where it
-applies: an `error` saying the canonical schema cannot be sent as written, which
-`finalizeCompile` drops once compile has worked around it, and — for changes
-that are *not* gated by `allowLossy` — a `warning` recording what changed at
-runtime, which survives into the compile result.
+Rules backed by a documented rejection follow SchemaPort's two-diagnostic
+pattern where it applies: an `error` saying the canonical schema cannot be sent
+as written, which `finalizeCompile` drops once compile has worked around it,
+and — for changes that are *not* gated by `allowLossy` — a `warning` recording
+what changed at runtime, which survives into the compile result. Rules backed by
+uncertainty are warnings only, because an error would assert a rejection nobody
+documented.
 
 ### `anthropic/strict-drops-numeric-constraint`
 
@@ -246,25 +251,25 @@ The surviving half of the pair above, for the `additionalProperties: true` case:
 after compilation the object rejects undeclared keys that the canonical schema
 accepted. Not gated, so it has to be visible in the result.
 
-### `anthropic/strict-optional-property`
-
-- **Severity:** error
-- **Path:** `inputSchema.properties.<name>`
-- **Compile:** supported, not lossy — the property is added to `required`.
-
-The strict subset requires every declared property to be listed in `required`;
-it has no way to express an optional property.
-
 ### `anthropic/strict-always-present-property`
 
 - **Severity:** warning
 - **Path:** `inputSchema.properties.<name>`
-- **Compile:** supported, not lossy.
+- **Compile:** supported, not lossy — the property is added to `required`.
 
-The surviving half of the pair above. After strict compilation the model must
-always send the property, so code that treated its absence as meaningful will
-see a value instead. This is the change most likely to surprise a caller, and
-`allowLossy` does not gate it, because the schema got *stricter*, not weaker.
+Strict compilation lists every declared property in `required`, so after
+compilation the model must always send it, and code that treated its absence as
+meaningful will see a value instead. This is the change most likely to surprise
+a caller, and `allowLossy` does not gate it, because the schema got *stricter*,
+not weaker.
+
+**This rule's source is weaker than every other rule in this package, and the
+message says so.** The reviewed documentation gives one object requirement for
+the strict subset — `additionalProperties: false` — and says nothing about
+optional properties. SchemaPort closes `required` anyway, because the subset has
+no documented way to express optionality; it does **not** claim Anthropic would
+reject the schema otherwise, which is why this is a warning and not an error
+paired with one. See [sources.md](sources.md).
 
 ### `anthropic/strict-keyword-undocumented`
 

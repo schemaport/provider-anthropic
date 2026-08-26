@@ -126,14 +126,21 @@ accepted is lost.
 - **Emitted:** once per object that has at least one property missing from
   `required`.
 
-The strict subset has no optional properties: every declared property must be
-listed in `required`. The compiled schema is *narrower* than the canonical one,
-not wider, so the lossy gate — which exists to catch schemas getting weaker —
-does not fire. That is a deliberate and slightly uncomfortable line: this is a
-real behavioural change, and it is reported as an error by
-`anthropic/strict-optional-property` before compilation and as a surviving
-warning by `anthropic/strict-always-present-property` after it. Read those
-before shipping a strict tool.
+The strict subset has no documented way to express an optional property, so
+strict compilation lists every declared property in `required`. The compiled
+schema is *narrower* than the canonical one, not wider, so the lossy gate —
+which exists to catch schemas getting weaker — does not fire. That is a
+deliberate and slightly uncomfortable line: this is a real behavioural change,
+gated by nothing, and it is reported by the surviving warning
+`anthropic/strict-always-present-property`. Read that before shipping a strict
+tool.
+
+Unlike every other transformation on this page, this one is **not** backed by a
+quoted line of Anthropic documentation. The reviewed pages document
+`additionalProperties: false` as a strict-subset object requirement and say
+nothing about optional properties. SchemaPort applies the rule anyway and labels
+it as its own choice rather than inventing a citation — see
+[sources.md](sources.md).
 
 ---
 

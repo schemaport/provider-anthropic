@@ -332,14 +332,21 @@ describe('required', () => {
     ).toBe('inputSchema.properties.amount');
   });
 
-  it('reports the canonical schema as unsendable and lets compile fix it', () => {
+  it('says plainly that requiring every property is SchemaPort\'s choice, not a cited rule', () => {
+    // The repository's recorded research quotes `additionalProperties: false`
+    // as a strict-subset object requirement. It does not quote "every property
+    // must be required", so the diagnostic must not claim Anthropic rejects an
+    // optional property — a warning about an uncertain choice, not an error.
     const diagnostic = anthropicProvider
       .check(refundOrderTool, { strict: true })
-      .find((d) => d.code === CODES.strictOptionalProperty);
-    expect(diagnostic?.severity).toBe('error');
+      .find((d) => d.code === CODES.strictAlwaysPresentProperty);
+    expect(diagnostic?.severity).toBe('warning');
     expect(diagnostic?.compile.supported).toBe(true);
     expect(diagnostic?.compile.lossy).toBe(false);
     expect(diagnostic?.path).toBe('inputSchema.properties.amount');
+    expect(diagnostic?.message).toContain("SchemaPort's own choice");
+    expect(diagnostic?.message).toContain('uncertain');
+    expect(diagnostic?.message).not.toContain('cannot be sent');
   });
 
   it('closes nested objects too', () => {
