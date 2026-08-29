@@ -1,6 +1,7 @@
 import type { CanonicalTool, Diagnostic, JsonSchema } from '@schemaport/core';
 import {
   compilable,
+  compilableLossy,
   diagnostic,
   isPlainObject,
   joinPath,
@@ -14,8 +15,11 @@ import {
   CODES,
   DOCS,
   DOCUMENTED_STRING_FORMATS,
+  isObjectSchema,
   NEVER_ENFORCED_KEYWORDS,
   PROVIDER_ID,
+  STRICT_DROP_CODES,
+  strictRejectedClass,
   SUPPORTED_MIN_ITEMS,
   TOOL_NAME_MAX_LENGTH,
   TOOL_NAME_PATTERN,
@@ -23,17 +27,36 @@ import {
 } from './rules.js';
 
 /**
+ * Options that put `check()` into the strict context.
+ *
+ * `check(tool)` with no options describes the default, non-strict tool
+ * definition and is unchanged from before strict mode existed. `compile()`
+ * passes `{ strict: true }` through when the caller asked for a strict tool, so
+ * the diagnostics in a strict compile result describe the strict subset rather
+ * than the permissive one.
+ */
+export interface AnthropicCheckOptions {
+  strict?: boolean;
+}
+
+/**
  * Anthropic compatibility rules.
  *
- * Anthropic is the most permissive of SchemaPort's targets: `input_schema` is
- * an arbitrary JSON Schema object that the Messages API renders into the
- * tool-use system prompt verbatim, so nothing has to be dropped. That
- * permissiveness is exactly why most of the rules below are warnings —
- * "accepted" and "enforced" are different things here, and only `strict: true`
- * (which SchemaPort does not emit, see docs/transformations.md) enforces
- * anything at all.
+ * The two modes are genuinely different targets and the rules split along that
+ * line:
+ *
+ * - **Default.** `input_schema` is an arbitrary JSON Schema object that the
+ *   Messages API renders into the tool-use system prompt verbatim, so nothing
+ *   has to be dropped — and nothing is enforced either. Most rules here are
+ *   warnings because "accepted" and "enforced" are different things.
+ * - **`strict: true`.** Anthropic validates tool inputs, but only over the
+ *   documented subset: numerical constraints, string constraints, array
+ *   constraints beyond `minItems` of 0 or 1 and any `additionalProperties`
+ *   other than `false` are rejected with a 400, so compilation drops them.
+ *   Every drop is an error whose fix is lossy.
  */
-export function checkTool(tool: CanonicalTool): Diagnostic[] {
+export function checkTool(tool: CanonicalTool, options?: AnthropicCheckOptions): Diagnostic[] {
+  const strict = options?.strict ?? false;
   const diagnostics: Diagnostic[] = [];
   const rootPath = joinPath('inputSchema');
 
@@ -44,16 +67,19 @@ export function checkTool(tool: CanonicalTool): Diagnostic[] {
   checkName(tool, add);
   checkDescription(tool, add);
   checkRootType(tool, rootPath, add);
-  checkEnforcement(tool, rootPath, add);
+  if (!strict) checkEnforcement(tool, rootPath, add);
 
   walkSchema(tool.inputSchema, rootPath, ({ schema, path }) => {
-    checkSubschema(schema, path, add);
+    if (strict) checkStrictSubschema(schema, path, add);
+    else checkSubschema(schema, path, add);
+    checkSharedSubschema(schema, path, strict, add);
   });
 
   return sortDiagnostics(diagnostics);
 }
 
 type Add = (init: Omit<Parameters<typeof diagnostic>[0], 'providerId' | 'toolName'>) => void;
+type DiagnosticInit = Omit<Parameters<typeof diagnostic>[0], 'providerId' | 'toolName'>;
 
 /** `anthropic/invalid-tool-name` — Define tools: `name` must match `^[a-zA-Z0-9_-]{1,64}$`. */
 function checkName(tool: CanonicalTool, add: Add): void {
@@ -131,7 +157,7 @@ function checkRootType(tool: CanonicalTool, rootPath: string, add: Add): void {
 }
 
 /**
- * `anthropic/schema-not-enforced` — the headline warning.
+ * `anthropic/schema-not-enforced` — the headline warning for the default form.
  *
  * The default Messages API tool-use path does not validate tool inputs. The
  * schema is rendered into the constructed system prompt
@@ -140,7 +166,8 @@ function checkRootType(tool: CanonicalTool, rootPath: string, add: Add): void {
  * return incompatible types (`"2"` instead of `2`) or omit required fields".
  *
  * Only emitted when the schema actually constrains something, so a genuinely
- * unconstrained tool still reports clean.
+ * unconstrained tool still reports clean — and never emitted in the strict
+ * context, where the statement would simply be false.
  */
 function checkEnforcement(tool: CanonicalTool, rootPath: string, add: Add): void {
   const properties = tool.inputSchema.properties;
@@ -154,15 +181,78 @@ function checkEnforcement(tool: CanonicalTool, rootPath: string, add: Add): void
     message:
       'Anthropic accepts this schema in full but does not validate tool inputs against it by default. ' +
       'The schema is rendered into the tool-use system prompt as guidance, so Claude may return mistyped ' +
-      'values or omit required properties. Input validation requires `strict: true`, which SchemaPort ' +
-      'does not emit because the strict subset rejects several keywords in this schema family.',
+      'values or omit required properties. Input validation requires `strict: true`, which SchemaPort can ' +
+      'emit with `compile(tool, { strict: true })` — at the cost of dropping every keyword the strict ' +
+      'subset rejects.',
     path: rootPath,
     compile: compilable('Emits the default (non-strict) tool definition, preserving the schema verbatim.'),
     docsUrl: DOCS.strictToolUse,
   });
 }
 
-/** Per-subschema keyword rules. */
+/* -------------------------------------------------------------------------- */
+/* Per-subschema rules                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Rules for keywords compilation preserves in **both** modes.
+ *
+ * All three are cases the documentation describes as outside the supported set
+ * without saying the request is rejected, so strict compilation keeps them
+ * rather than dropping them on a guess. The strict wording adds the one thing
+ * that does change: an unsupported feature is documented to return a 400, so
+ * the request may be refused.
+ */
+function checkSharedSubschema(schema: JsonSchema, path: string, strict: boolean, add: Add): void {
+  const strictRisk = strict
+    ? ' Under `strict: true` Anthropic may reject the request with a 400 instead; SchemaPort keeps the keyword rather than dropping it, because the documentation does not say it is rejected.'
+    : '';
+
+  if (Array.isArray(schema.enum) && schema.enum.some((value) => !isPrimitive(value))) {
+    add({
+      severity: 'warning',
+      code: CODES.enumNonPrimitiveValue,
+      message:
+        '`enum` contains a non-primitive value. Anthropic documents `enum` support for strings, numbers, ' +
+        'booleans and nulls only — "no complex types". The values are passed through but are not enforced.' +
+        strictRisk,
+      path: joinPath(path, 'enum'),
+      compile: compilable('Preserved verbatim in `input_schema`.'),
+      docsUrl: DOCS.jsonSchemaLimitations,
+    });
+  }
+
+  if (typeof schema.format === 'string' && !DOCUMENTED_STRING_FORMATS.has(schema.format)) {
+    add({
+      severity: 'warning',
+      code: CODES.undocumentedStringFormat,
+      message:
+        `String format \`${schema.format}\` is outside Anthropic's documented set ` +
+        `(${[...DOCUMENTED_STRING_FORMATS].join(', ')}). It is passed through as prompt text only.` +
+        strictRisk,
+      path: joinPath(path, 'format'),
+      compile: compilable('Preserved verbatim in `input_schema`.'),
+      docsUrl: DOCS.jsonSchemaLimitations,
+    });
+  }
+
+  if (typeof schema.$ref === 'string' && !schema.$ref.startsWith('#')) {
+    add({
+      severity: 'warning',
+      code: CODES.externalRef,
+      message:
+        `\`$ref\` targets \`${schema.$ref}\`, which is outside this document. Anthropic documents external ` +
+        '`$ref` as not supported, and nothing resolves it in default tool use — the model only sees the ' +
+        'unresolved reference.' +
+        strictRisk,
+      path: joinPath(path, '$ref'),
+      compile: compilable('Preserved verbatim in `input_schema`; SchemaPort does not fetch external documents.'),
+      docsUrl: DOCS.jsonSchemaLimitations,
+    });
+  }
+}
+
+/** Per-subschema rules for the default, non-strict tool definition. */
 function checkSubschema(schema: JsonSchema, path: string, add: Add): void {
   for (const keyword of NEVER_ENFORCED_KEYWORDS) {
     if (schema[keyword] === undefined) continue;
@@ -199,53 +289,174 @@ function checkSubschema(schema: JsonSchema, path: string, add: Add): void {
       docsUrl: DOCS.jsonSchemaLimitations,
     });
   }
+}
 
-  if (Array.isArray(schema.enum) && schema.enum.some((value) => !isPrimitive(value))) {
+/**
+ * Per-subschema rules for `strict: true`.
+ *
+ * Everything the JSON Schema limitations page lists under "Not supported"
+ * becomes an `error` whose fix is lossy: strict compilation has to drop the
+ * keyword, and `finalizeCompile` then refuses the compile unless the caller
+ * passed `allowLossy`. Keywords the page does not mention are *not* dropped —
+ * they get an uncertainty warning instead.
+ */
+function checkStrictSubschema(schema: JsonSchema, path: string, add: Add): void {
+  for (const keyword of NEVER_ENFORCED_KEYWORDS) {
+    if (schema[keyword] === undefined) continue;
+    const rejected = strictRejectedClass(keyword);
+    if (rejected === undefined) continue;
+    add(strictDropsConstraint(keyword, rejected, joinPath(path, keyword)));
+  }
+
+  const minItems = schema.minItems;
+  if (typeof minItems === 'number' && !SUPPORTED_MIN_ITEMS.has(minItems)) {
+    add(
+      strictDropsConstraint(
+        'minItems',
+        'array',
+        joinPath(path, 'minItems'),
+        `\`minItems: ${String(minItems)}\` is outside the supported values 0 and 1.`,
+      ),
+    );
+  }
+
+  checkStrictObject(schema, path, add);
+
+  for (const keyword of UNDOCUMENTED_KEYWORDS) {
+    if (schema[keyword] === undefined) continue;
     add({
       severity: 'warning',
-      code: CODES.enumNonPrimitiveValue,
+      code: CODES.strictKeywordUndocumented,
       message:
-        '`enum` contains a non-primitive value. Anthropic documents `enum` support for strings, numbers, ' +
-        'booleans and nulls only — "no complex types". The values are passed through but are not enforced.',
-      path: joinPath(path, 'enum'),
-      compile: compilable('Preserved verbatim in `input_schema`.'),
+        `\`${keyword}\` appears in neither the supported nor the unsupported list of the JSON Schema ` +
+        'limitations page, so SchemaPort cannot tell you whether `strict: true` honours it. It is kept in ' +
+        'the compiled schema rather than dropped on a guess — but the page says an unsupported feature ' +
+        'returns "a 400 error with details", so this request may be rejected. Uncertain, not a guarantee.',
+      path: joinPath(path, keyword),
+      compile: compilable('Preserved verbatim in `input_schema`; SchemaPort will not drop a keyword Anthropic does not document as rejected.'),
       docsUrl: DOCS.jsonSchemaLimitations,
     });
   }
 
-  if (typeof schema.format === 'string' && !DOCUMENTED_STRING_FORMATS.has(schema.format)) {
+  if (typeof schema.$ref === 'string' && schema.$ref.startsWith('#')) {
     add({
       severity: 'warning',
-      code: CODES.undocumentedStringFormat,
+      code: CODES.strictLocalRef,
       message:
-        `String format \`${schema.format}\` is outside Anthropic's documented set ` +
-        `(${[...DOCUMENTED_STRING_FORMATS].join(', ')}). It is passed through as prompt text only.`,
-      path: joinPath(path, 'format'),
-      compile: compilable('Preserved verbatim in `input_schema`.'),
-      docsUrl: DOCS.jsonSchemaLimitations,
-    });
-  }
-
-  if (typeof schema.$ref === 'string' && !schema.$ref.startsWith('#')) {
-    add({
-      severity: 'warning',
-      code: CODES.externalRef,
-      message:
-        `\`$ref\` targets \`${schema.$ref}\`, which is outside this document. Anthropic documents external ` +
-        '`$ref` as not supported, and nothing resolves it in default tool use — the model only sees the ' +
-        'unresolved reference.',
+        `\`$ref\` targets \`${schema.$ref}\`. Local references are documented as supported, but recursive ` +
+        'schemas are documented as *un*supported under `strict: true`. SchemaPort does not resolve `$ref`, ' +
+        'so it cannot confirm this schema is not recursive; if it is, Anthropic returns a 400. Verify it ' +
+        'yourself or probe the tool.',
       path: joinPath(path, '$ref'),
-      compile: compilable('Preserved verbatim in `input_schema`; SchemaPort does not fetch external documents.'),
-      docsUrl: DOCS.jsonSchemaLimitations,
+      compile: compilable('Preserved verbatim in `input_schema`; SchemaPort does not inline or resolve references.'),
+      docsUrl: DOCS.strictToolUse,
     });
   }
 }
 
-function neverEnforced(
+/**
+ * The strict subset's object requirements.
+ *
+ * `additionalProperties: false` is documented, and follows the two-diagnostic
+ * pattern: an `error` saying the canonical schema cannot be sent as written,
+ * which disappears once compile has worked around it, and a `warning` recording
+ * what changed at runtime, which survives into the compile result.
+ *
+ * Listing every declared property in `required` is **not** documented — see the
+ * message below. It is a choice this package makes, so it gets a plain warning
+ * and no error: claiming Anthropic rejects an optional property would be a
+ * guarantee SchemaPort cannot cite.
+ */
+function checkStrictObject(schema: JsonSchema, path: string, add: Add): void {
+  if (!isObjectSchema(schema)) return;
+
+  const properties = isPlainObject(schema.properties) ? schema.properties : {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+
+  for (const name of Object.keys(properties)) {
+    if (required.includes(name)) continue;
+
+    add({
+      severity: 'warning',
+      code: CODES.strictAlwaysPresentProperty,
+      message:
+        `Strict compilation lists \`${name}\` in \`required\`, so the model must always send it — callers ` +
+        'that treated its absence as meaningful will now always receive a value. Be aware this is ' +
+        "SchemaPort's own choice, not a documented Anthropic rule: the object requirement SchemaPort can " +
+        'cite for the strict subset is `additionalProperties: false`, and no reviewed page says an optional ' +
+        'property is rejected. It is applied because the strict subset has no documented way to express ' +
+        'optionality — treat that as uncertain, not as a guarantee.',
+      path: joinPath(path, 'properties', name),
+      compile: compilable(`Emits \`${name}\` as required; it is never omitted.`),
+      docsUrl: DOCS.jsonSchemaLimitations,
+    });
+  }
+
+  const additional = schema.additionalProperties;
+  if (additional === undefined || additional === false) return;
+
+  const at = joinPath(path, 'additionalProperties');
+  if (additional === true) {
+    add({
+      severity: 'error',
+      code: CODES.strictDropsAdditionalProperties,
+      message:
+        '`additionalProperties: true` is rejected by the strict subset, which documents ' +
+        '"`additionalProperties` set to anything other than `false`" as not supported.',
+      path: at,
+      compile: compilable('Replaces `additionalProperties: true` with `false`.'),
+      docsUrl: DOCS.jsonSchemaLimitations,
+    });
+    add({
+      severity: 'warning',
+      code: CODES.strictClosedOpenObject,
+      message:
+        'After strict compilation this object is closed: undeclared keys are rejected instead of accepted. ' +
+        'The canonical schema allowed them.',
+      path: at,
+      compile: compilable('Emits `additionalProperties: false`; undeclared keys are rejected.'),
+      docsUrl: DOCS.jsonSchemaLimitations,
+    });
+    return;
+  }
+
+  add({
+    severity: 'error',
+    code: CODES.strictDropsAdditionalProperties,
+    message:
+      'A typed `additionalProperties` schema is rejected by the strict subset, which documents ' +
+      '"`additionalProperties` set to anything other than `false`" as not supported. The open typed map ' +
+      'cannot be expressed under `strict: true`.',
+    path: at,
+    compile: compilableLossy(
+      'Replaces the value schema with `additionalProperties: false`, dropping the open typed map.',
+    ),
+    docsUrl: DOCS.jsonSchemaLimitations,
+  });
+}
+
+function strictDropsConstraint(
   keyword: string,
+  rejected: 'numeric' | 'string' | 'array',
   path: string,
   extra?: string,
-): Omit<Parameters<typeof diagnostic>[0], 'providerId' | 'toolName'> {
+): DiagnosticInit {
+  const codes = STRICT_DROP_CODES[rejected];
+  return {
+    severity: 'error',
+    code: codes.diagnostic,
+    message:
+      `\`${keyword}\` is rejected by Anthropic's strict subset, which lists "${codes.documentedAs}" ` +
+      'as not supported — an unsupported feature returns "a 400 error with details"' +
+      (extra === undefined ? '' : `. ${extra}`) +
+      '. Strict compilation drops the keyword, so the constraint stops being expressed at all.',
+    path,
+    compile: compilableLossy(`Drops \`${keyword}\`; the constraint is gone from the compiled schema.`),
+    docsUrl: DOCS.jsonSchemaLimitations,
+  };
+}
+
+function neverEnforced(keyword: string, path: string, extra?: string): DiagnosticInit {
   return {
     severity: 'warning',
     code: CODES.constraintNotEnforced,

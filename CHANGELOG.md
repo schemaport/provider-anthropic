@@ -6,6 +6,84 @@ file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Opt-in `strict: true` compilation.** `compile(tool, { strict: true })` emits
+  the enforced form of an Anthropic tool definition: `strict: true` on the tool,
+  `additionalProperties: false` on every object, and every declared property
+  listed in `required`. Anthropic validates tool inputs only in this mode.
+  - New option type `AnthropicCompileOptions extends CompileOptions`, plus
+    `AnthropicProbeOptions extends ProbeOptions` and `AnthropicCheckOptions`.
+    Every added field is optional, so `anthropicProvider` — now typed
+    `AnthropicProvider` — remains assignable to `SchemaPortProvider` and
+    `@schemaport/core` is unchanged.
+  - `AnthropicToolDefinition` gained an optional `strict?: true` field.
+- **Strict compilation drops what the strict subset rejects, and refuses to do
+  it silently.** Numerical constraints (`minimum`, `maximum`,
+  `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`), string constraints
+  (`minLength`, `maxLength`), array constraints beyond `minItems` of 0 or 1
+  (`maxItems`, `uniqueItems`, other `minItems` values) and a typed
+  `additionalProperties` schema are dropped, each as its own **lossy**
+  transformation. `finalizeCompile` therefore refuses a strict compile of any
+  schema carrying one unless the caller also passes `allowLossy`. The PRD's own
+  `refund_order` example is refused, because `amount.minimum: 0` cannot survive.
+- New transformations: `enabled-strict-mode`, `dropped-numeric-constraint`,
+  `dropped-string-constraint`, `dropped-array-constraint`,
+  `dropped-additional-properties-schema`, `closed-open-object`,
+  `added-additional-properties-false`, `required-every-property`. Only the four
+  `dropped-*` codes are lossy.
+- Eight strict-only diagnostics, none of them emitted when strict is off:
+  `anthropic/strict-drops-numeric-constraint`,
+  `anthropic/strict-drops-string-constraint`,
+  `anthropic/strict-drops-array-constraint`,
+  `anthropic/strict-drops-additional-properties`,
+  `anthropic/strict-always-present-property`,
+  `anthropic/strict-closed-open-object`,
+  `anthropic/strict-keyword-undocumented`, `anthropic/strict-local-ref`.
+- `probe(tool, { strict: true })` sends the strict definition. Every existing
+  probe guarantee is unchanged, including compiling first: a strict schema whose
+  losses the caller has not accepted is never sent, and comes back as
+  `errorKind: 'compile-refused'`.
+- `check(tool, { strict: true })` returns the strict rule set. `check(tool)` is
+  unchanged.
+
+### Known gap
+
+- Strict compilation lists every declared property in `required`. That is the
+  one strict rule this package cannot cite a documented line for: the reviewed
+  pages give `additionalProperties: false` as the strict subset's object
+  requirement and say nothing about optional properties. The behaviour is
+  applied, labelled as SchemaPort's own choice in
+  `anthropic/strict-always-present-property`, and recorded as a gap in
+  `docs/sources.md` rather than dressed up with a citation.
+- Exports: `STRICT_ONLY_CODES`, `STRICT_DROPPED_KEYWORDS`,
+  `STRICT_REJECTED_KEYWORDS`.
+
+### Changed
+
+- `anthropic/schema-not-enforced` now says SchemaPort **can** emit `strict: true`
+  on request, because that is newly true. Its severity, path and trigger are
+  unchanged. This is the only change to the default-mode diagnostics.
+- Documentation rewritten where strict mode falsified it: the
+  "SchemaPort does not emit `strict: true`" section of `docs/limitations.md` is
+  now a description of the capability and its cost, and
+  `docs/compatibility-rules.md`, `docs/transformations.md`, `docs/probing.md`,
+  `docs/examples.md` and `README.md` all document both modes.
+
+### Unchanged
+
+- **The default path.** `compile(tool)` with no options emits exactly what it
+  emitted before, byte for byte. `test/baseline-main.ts` pins the previous
+  output for all six shared `@schemaport/core` fixtures and the suite asserts
+  byte-identical output, identical transformations and an identical set of
+  rules, paths and severities.
+- No keyword is dropped, and no lossy transformation is emitted, unless
+  `strict: true` is asked for.
+- `rulesReviewedAt` stays `2026-08-20`: strict mode is implemented from the
+  research already recorded in `docs/`, not from a new documentation review.
+
 ## [0.1.0] - 2026-08-20
 
 ### Added

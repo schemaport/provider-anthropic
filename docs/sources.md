@@ -43,12 +43,27 @@ export declare namespace Tool {
 ```
 
 Used to confirm the exact field name `input_schema`, that `type` is the literal
-`'object'`, and that the schema object is open to arbitrary keywords.
+`'object'`, that the schema object is open to arbitrary keywords, and the exact
+name and meaning of the optional `strict` field that
+`compile(tool, { strict: true })` emits.
 
 ## What was checked but produced no rule
 
 - **Description / schema size limits.** Not documented on the Messages API
   reference or the Tool reference. No rule invented.
 - **Maximum number of tools.** Not documented. No rule.
-- **Recursive schemas.** Documented as unsupported under `strict: true` only,
-  which this package does not emit. No rule.
+- **Recursive schemas.** Documented as unsupported under `strict: true`, which
+  this package emits on request. Detecting recursion would mean resolving
+  `$ref`, which SchemaPort does not do, so there is no detection rule — only
+  `anthropic/strict-local-ref`, which states the uncertainty.
+- **"Every property must be listed in `required`" under `strict: true`.** Not
+  recorded here. The reviewed pages give one object requirement for the strict
+  subset — `additionalProperties: false` — and say nothing about optional
+  properties. Strict compilation nevertheless lists every declared property in
+  `required`, because the subset has no documented way to express optionality.
+  That is a **choice this package makes, not a documented API rule**, and
+  `anthropic/strict-always-present-property` says so in the diagnostic itself
+  rather than citing a page for it.
+- **Which models support `strict: true`.** The Strict tool use page lists them.
+  SchemaPort does not embed that list: it would go stale between reviews, and
+  `compile()` does not know which model the tool will be sent to. No rule.

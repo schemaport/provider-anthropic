@@ -1,4 +1,5 @@
-import type { ProviderDocReference } from '@schemaport/core';
+import type { JsonSchema, ProviderDocReference } from '@schemaport/core';
+import { isPlainObject, isType } from '@schemaport/core';
 
 /**
  * Facts about Anthropic tool schemas, established from the official
@@ -74,6 +75,45 @@ export const NEVER_ENFORCED_KEYWORDS = [
 ] as const;
 
 /**
+ * The same "Not supported" keywords, grouped the way the JSON Schema
+ * limitations page groups them.
+ *
+ * `strict: true` does not merely ignore these — the page states "If you use an
+ * unsupported feature, you'll receive a 400 error with details". Strict
+ * compilation therefore has to *drop* them, which is why every drop is recorded
+ * as a lossy transformation.
+ *
+ * The two constraints that are value-dependent rather than keyword-dependent —
+ * `minItems` outside {0, 1} and `additionalProperties` other than `false` — are
+ * handled separately, against {@link SUPPORTED_MIN_ITEMS} and the object rules.
+ */
+export const STRICT_REJECTED_KEYWORDS = {
+  /** "Numerical constraints (such as `minimum`, `maximum`, `multipleOf`)". */
+  numeric: ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'],
+  /** "String constraints (`minLength`, `maxLength`)". */
+  string: ['minLength', 'maxLength'],
+  /** "Array constraints beyond `minItems` of 0 or 1". */
+  array: ['maxItems', 'uniqueItems'],
+} as const satisfies Record<string, readonly string[]>;
+
+/** Every keyword strict compilation drops outright, flattened. */
+export const STRICT_DROPPED_KEYWORDS: readonly string[] = Object.freeze([
+  ...STRICT_REJECTED_KEYWORDS.numeric,
+  ...STRICT_REJECTED_KEYWORDS.string,
+  ...STRICT_REJECTED_KEYWORDS.array,
+]);
+
+/** Which rejected class a keyword belongs to, or `undefined` if strict keeps it. */
+export function strictRejectedClass(keyword: string): 'numeric' | 'string' | 'array' | undefined {
+  for (const [name, keywords] of Object.entries(STRICT_REJECTED_KEYWORDS)) {
+    if ((keywords as readonly string[]).includes(keyword)) {
+      return name as 'numeric' | 'string' | 'array';
+    }
+  }
+  return undefined;
+}
+
+/**
  * Keywords absent from both the "Supported features" and "Not supported"
  * lists. Absence is not a documented rejection, so diagnostics for these say
  * "not documented as supported".
@@ -129,10 +169,79 @@ export const CODES = {
   enumNonPrimitiveValue: 'anthropic/enum-non-primitive-value',
   externalRef: 'anthropic/external-ref',
   missingToolDescription: 'anthropic/missing-tool-description',
+
+  // Strict-mode rules. These fire only when the caller asked for
+  // `strict: true`; nothing below is ever emitted for a default compile.
+  strictDropsNumericConstraint: 'anthropic/strict-drops-numeric-constraint',
+  strictDropsStringConstraint: 'anthropic/strict-drops-string-constraint',
+  strictDropsArrayConstraint: 'anthropic/strict-drops-array-constraint',
+  strictDropsAdditionalProperties: 'anthropic/strict-drops-additional-properties',
+  strictAlwaysPresentProperty: 'anthropic/strict-always-present-property',
+  strictClosedOpenObject: 'anthropic/strict-closed-open-object',
+  strictKeywordUndocumented: 'anthropic/strict-keyword-undocumented',
+  strictLocalRef: 'anthropic/strict-local-ref',
 } as const;
+
+/** Diagnostic codes that are only ever emitted under `strict: true`. */
+export const STRICT_ONLY_CODES: readonly string[] = Object.freeze([
+  CODES.strictDropsNumericConstraint,
+  CODES.strictDropsStringConstraint,
+  CODES.strictDropsArrayConstraint,
+  CODES.strictDropsAdditionalProperties,
+  CODES.strictAlwaysPresentProperty,
+  CODES.strictClosedOpenObject,
+  CODES.strictKeywordUndocumented,
+  CODES.strictLocalRef,
+]);
 
 /** Transformation codes emitted by `compile()`. */
 export const TRANSFORMATIONS = {
   renamedInputSchemaField: 'renamed-input-schema-field',
   addedInputSchemaType: 'added-input-schema-type',
+
+  // Strict-mode transformations.
+  enabledStrictMode: 'enabled-strict-mode',
+  droppedNumericConstraint: 'dropped-numeric-constraint',
+  droppedStringConstraint: 'dropped-string-constraint',
+  droppedArrayConstraint: 'dropped-array-constraint',
+  droppedAdditionalPropertiesSchema: 'dropped-additional-properties-schema',
+  closedOpenObject: 'closed-open-object',
+  addedAdditionalPropertiesFalse: 'added-additional-properties-false',
+  requiredEveryProperty: 'required-every-property',
+} as const;
+
+
+/**
+ * Whether a subschema describes a JSON object, and therefore falls under the
+ * strict subset's object requirements (`additionalProperties: false`, and every
+ * declared property listed in `required`).
+ *
+ * A schema that declares `properties` without a `type` still describes an
+ * object, so both signals count.
+ */
+export function isObjectSchema(schema: JsonSchema): boolean {
+  return (
+    isType(schema, 'object') ||
+    isPlainObject(schema.properties) ||
+    schema.additionalProperties !== undefined
+  );
+}
+
+/** Per rejected-keyword class: the diagnostic and transformation codes it uses. */
+export const STRICT_DROP_CODES = {
+  numeric: {
+    diagnostic: CODES.strictDropsNumericConstraint,
+    transformation: TRANSFORMATIONS.droppedNumericConstraint,
+    documentedAs: 'Numerical constraints (such as `minimum`, `maximum`, `multipleOf`)',
+  },
+  string: {
+    diagnostic: CODES.strictDropsStringConstraint,
+    transformation: TRANSFORMATIONS.droppedStringConstraint,
+    documentedAs: 'String constraints (`minLength`, `maxLength`)',
+  },
+  array: {
+    diagnostic: CODES.strictDropsArrayConstraint,
+    transformation: TRANSFORMATIONS.droppedArrayConstraint,
+    documentedAs: 'Array constraints beyond `minItems` of 0 or 1',
+  },
 } as const;
