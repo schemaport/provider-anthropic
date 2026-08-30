@@ -75,26 +75,7 @@ export const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 export const TOOL_NAME_MAX_LENGTH = 64;
 
 /**
- * Keywords the JSON Schema limitations page lists explicitly under
- * "Not supported". They are accepted in the default (non-strict) request
- * because `input_schema` is passed through to the prompt verbatim, but
- * Anthropic never enforces them: not in default tool use, and enabling
- * `strict: true` returns a 400 rather than enforcing them.
- */
-export const NEVER_ENFORCED_KEYWORDS = [
-  'minimum',
-  'maximum',
-  'exclusiveMinimum',
-  'exclusiveMaximum',
-  'multipleOf',
-  'minLength',
-  'maxLength',
-  'maxItems',
-  'uniqueItems',
-] as const;
-
-/**
- * The same "Not supported" keywords, grouped the way the JSON Schema
+ * The "Not supported" keywords, grouped the way the JSON Schema
  * limitations page groups them.
  *
  * `strict: true` does not merely ignore these — the page states "If you use an
@@ -121,6 +102,22 @@ export const STRICT_DROPPED_KEYWORDS: readonly string[] = Object.freeze([
   ...STRICT_REJECTED_KEYWORDS.string,
   ...STRICT_REJECTED_KEYWORDS.array,
 ]);
+
+/**
+ * Keywords the JSON Schema limitations page lists explicitly under
+ * "Not supported". They are accepted in the default (non-strict) request
+ * because `input_schema` is passed through to the prompt verbatim, but
+ * Anthropic never enforces them: not in default tool use, and enabling
+ * `strict: true` returns a 400 rather than enforcing them.
+ *
+ * Derived from {@link STRICT_REJECTED_KEYWORDS} rather than written out again.
+ * The two describe the same sentence of the same page from two angles — "not
+ * enforced by default" and "rejected under strict" — so they are the same set
+ * by construction, not by coincidence. Keeping a second hand-maintained copy
+ * meant a keyword could be added to one and missed in the other, and the code
+ * that consumes both fails quietly in exactly that case. See `check.ts`.
+ */
+export const NEVER_ENFORCED_KEYWORDS: readonly string[] = STRICT_DROPPED_KEYWORDS;
 
 /** Which rejected class a keyword belongs to, or `undefined` if strict keeps it. */
 export function strictRejectedClass(keyword: string): 'numeric' | 'string' | 'array' | undefined {
