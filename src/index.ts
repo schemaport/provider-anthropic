@@ -78,12 +78,18 @@ export default anthropicProvider;
 export { checkTool } from './check.js';
 export type { AnthropicCheckOptions } from './check.js';
 export { compileTool } from './compile.js';
-export type { AnthropicCompileOptions, AnthropicToolDefinition } from './compile.js';
+export type {
+  AnthropicCacheControl,
+  AnthropicCompileOptions,
+  AnthropicToolDefinition,
+} from './compile.js';
 export { probeToolWithAnthropic } from './probe.js';
 export type { AnthropicMessagesClient, AnthropicProbeOptions } from './probe.js';
 export {
+  CACHE_CONTROL_TTLS,
   CODES,
   DEFAULT_PROBE_MODEL,
+  MAX_CACHE_BREAKPOINTS,
   DOC_REFERENCES,
   DOCS,
   PROBE_MODEL_ENV_VAR,

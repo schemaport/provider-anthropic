@@ -37,6 +37,7 @@ export const DOCS = {
   toolReference: 'https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-reference',
   messagesApi: 'https://platform.claude.com/docs/en/api/messages',
   modelsOverview: 'https://platform.claude.com/docs/en/about-claude/models/overview',
+  promptCaching: 'https://platform.claude.com/docs/en/build-with-claude/prompt-caching',
 } as const;
 
 export const DOC_REFERENCES: readonly ProviderDocReference[] = Object.freeze([
@@ -46,7 +47,25 @@ export const DOC_REFERENCES: readonly ProviderDocReference[] = Object.freeze([
   { title: 'Tool reference — tool definition properties', url: DOCS.toolReference },
   { title: 'Messages API reference', url: DOCS.messagesApi },
   { title: 'Models overview', url: DOCS.modelsOverview },
+  { title: 'Prompt caching', url: DOCS.promptCaching },
 ]);
+
+/**
+ * `cache_control.ttl` values the Messages API documents.
+ *
+ * `5m` is the default and needs no beta header. `1h` is the extended cache
+ * lifetime.
+ */
+export const CACHE_CONTROL_TTLS: readonly string[] = Object.freeze(['5m', '1h']);
+
+/**
+ * The most `cache_control` breakpoints a single request may carry.
+ *
+ * SchemaPort compiles one tool at a time and never sees the assembled request,
+ * so it cannot count them. The limit is recorded here only so the diagnostic
+ * that warns about it can cite a number.
+ */
+export const MAX_CACHE_BREAKPOINTS = 4;
 
 /**
  * Define tools: "`name` — The name of the tool. Must match the regex
@@ -180,6 +199,10 @@ export const CODES = {
   strictClosedOpenObject: 'anthropic/strict-closed-open-object',
   strictKeywordUndocumented: 'anthropic/strict-keyword-undocumented',
   strictLocalRef: 'anthropic/strict-local-ref',
+
+  // Prompt-caching rules. Emitted only when the caller passes `cacheControl`.
+  cacheControlInvalidTtl: 'anthropic/cache-control-invalid-ttl',
+  cacheControlBreakpointScope: 'anthropic/cache-control-breakpoint-scope',
 } as const;
 
 /** Diagnostic codes that are only ever emitted under `strict: true`. */
@@ -208,6 +231,9 @@ export const TRANSFORMATIONS = {
   closedOpenObject: 'closed-open-object',
   addedAdditionalPropertiesFalse: 'added-additional-properties-false',
   requiredEveryProperty: 'required-every-property',
+
+  // Prompt-caching transformations.
+  addedCacheControl: 'added-cache-control',
 } as const;
 
 

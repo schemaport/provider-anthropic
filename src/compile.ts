@@ -15,9 +15,16 @@ import {
   transformation,
 } from '@schemaport/core';
 
+import type { Diagnostic } from '@schemaport/core';
+import { diagnostic, notCompilable } from '@schemaport/core';
+
 import { checkTool } from './check.js';
 import {
+  CACHE_CONTROL_TTLS,
+  CODES,
+  DOCS,
   isObjectSchema,
+  MAX_CACHE_BREAKPOINTS,
   PROVIDER_ID,
   STRICT_DROP_CODES,
   SUPPORTED_MIN_ITEMS,
@@ -41,6 +48,22 @@ export interface AnthropicToolDefinition {
    * "When true, guarantees schema validation on tool names and inputs".
    */
   strict?: true;
+  /**
+   * Emitted only by `compile(tool, { cacheControl: ... })`. Marks a prompt
+   * cache breakpoint at this tool.
+   */
+  cache_control?: AnthropicCacheControl;
+}
+
+/**
+ * A `cache_control` value, as the Messages API accepts it.
+ *
+ * `type` has one documented value. `ttl` selects the cache lifetime: `5m` is
+ * the default, `1h` is the extended lifetime.
+ */
+export interface AnthropicCacheControl {
+  type: 'ephemeral';
+  ttl?: '5m' | '1h';
 }
 
 /**
@@ -60,10 +83,94 @@ export interface AnthropicCompileOptions extends CompileOptions {
    * also set. See `docs/limitations.md`.
    */
   strict?: boolean;
+  /**
+   * Mark this tool as a prompt cache breakpoint.
+   *
+   * `true` is shorthand for `{ type: 'ephemeral' }`. Off by default.
+   *
+   * A breakpoint caches everything *before and including* the tool it sits on,
+   * so in a `tools` array it belongs on the last stable tool, not on every
+   * one. See `docs/prompt-caching.md`.
+   */
+  cacheControl?: boolean | AnthropicCacheControl;
 }
 
 interface Context {
   transformations: Transformation[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Prompt caching                                                              */
+/* -------------------------------------------------------------------------- */
+
+/** Normalize the `cacheControl` option into the wire value, or `undefined`. */
+function resolveCacheControl(
+  option: boolean | AnthropicCacheControl | undefined,
+): AnthropicCacheControl | undefined {
+  if (option === undefined || option === false) return undefined;
+  if (option === true) return { type: 'ephemeral' };
+  // Rebuilt rather than passed through so `type` always precedes `ttl` and the
+  // compiled output serializes byte-identically. An unrecognised `ttl` is
+  // dropped rather than forwarded: the API rejects the whole request over it,
+  // which would cost the caller the tool definition as well as the caching.
+  // The type says this cannot happen; JavaScript callers say otherwise.
+  const { ttl } = option;
+  if (ttl === undefined || !CACHE_CONTROL_TTLS.includes(ttl)) return { type: 'ephemeral' };
+  return { type: 'ephemeral', ttl };
+}
+
+/**
+ * Diagnostics for a requested cache breakpoint.
+ *
+ * Neither is a refusal. An unknown `ttl` is dropped rather than sent, because
+ * the API rejects the request outright and the caller would lose the tool
+ * definition along with the caching they asked for.
+ */
+function checkCacheControl(
+  tool: CanonicalTool,
+  option: boolean | AnthropicCacheControl | undefined,
+): Diagnostic[] {
+  if (option === undefined || option === false) return [];
+
+  const diagnostics: Diagnostic[] = [];
+  const emit = (init: Omit<Parameters<typeof diagnostic>[0], 'providerId' | 'toolName'>): void => {
+    diagnostics.push(diagnostic({ providerId: PROVIDER_ID, toolName: tool.name, ...init }));
+  };
+
+  const ttl = typeof option === 'object' ? option.ttl : undefined;
+  if (ttl !== undefined && !CACHE_CONTROL_TTLS.includes(ttl)) {
+    emit({
+      severity: 'warning',
+      code: CODES.cacheControlInvalidTtl,
+      message:
+        `\`cacheControl.ttl\` is ${JSON.stringify(ttl)}. The Messages API documents ` +
+        `${CACHE_CONTROL_TTLS.map((value) => `\`${value}\``).join(' and ')} only, and rejects ` +
+        'anything else with a 400. The breakpoint is emitted without a `ttl`, which is the 5m default.',
+      path: 'cacheControl.ttl',
+      compile: notCompilable('`ttl` is dropped; `cache_control` is still emitted.'),
+      docsUrl: DOCS.promptCaching,
+    });
+  }
+
+  // SchemaPort compiles one tool at a time and never sees the assembled
+  // request, so it cannot check either of the two things that actually make a
+  // breakpoint work: that the cached prefix is long enough to be cacheable at
+  // all, and that the request carries no more than the documented maximum.
+  emit({
+    severity: 'info',
+    code: CODES.cacheControlBreakpointScope,
+    message:
+      'A `cache_control` breakpoint caches every block before and including this tool, not this ' +
+      'tool alone. Put it on the last stable tool in the `tools` array rather than on each one: ' +
+      `a request may carry at most ${MAX_CACHE_BREAKPOINTS} breakpoints, and a prefix shorter ` +
+      'than the model\'s minimum cacheable length is not cached at all. SchemaPort compiles one ' +
+      'tool at a time and cannot verify either from here.',
+    path: 'cacheControl',
+    compile: notCompilable('`cache_control` is emitted as requested.'),
+    docsUrl: DOCS.promptCaching,
+  });
+
+  return diagnostics;
 }
 
 function record(ctx: Context, code: string, path: string, detail: string, lossy: boolean): void {
@@ -267,6 +374,7 @@ function closeObject(
  */
 export function compileTool(tool: CanonicalTool, options?: AnthropicCompileOptions): CompileResult {
   const strict = options?.strict ?? false;
+  const cacheControl = resolveCacheControl(options?.cacheControl);
   const ctx: Context = { transformations: [] };
   const rootPath = joinPath('inputSchema');
 
@@ -311,14 +419,25 @@ export function compileTool(tool: CanonicalTool, options?: AnthropicCompileOptio
 
   if (strict) inputSchema = toStrictSchema(inputSchema, rootPath, ctx);
 
-  // Key order is fixed at name, description, input_schema, strict so repeated
-  // compilations serialize byte-identically.
+  if (cacheControl !== undefined) {
+    record(
+      ctx,
+      TRANSFORMATIONS.addedCacheControl,
+      'cache_control',
+      `Emitted \`cache_control: { type: "ephemeral"${cacheControl.ttl === undefined ? '' : `, ttl: "${cacheControl.ttl}"`} }\`, marking a prompt cache breakpoint at this tool.`,
+      false,
+    );
+  }
+
+  // Key order is fixed at name, description, input_schema, strict,
+  // cache_control so repeated compilations serialize byte-identically.
   const hasDescription = tool.description !== undefined && tool.description.length > 0;
   const output: AnthropicToolDefinition = {
     name: tool.name,
     ...(hasDescription ? { description: tool.description } : {}),
     input_schema: inputSchema,
     ...(strict ? { strict: true as const } : {}),
+    ...(cacheControl === undefined ? {} : { cache_control: cacheControl }),
   };
 
   return finalizeCompile({
@@ -326,7 +445,7 @@ export function compileTool(tool: CanonicalTool, options?: AnthropicCompileOptio
     tool,
     output,
     transformations: ctx.transformations,
-    diagnostics: checkTool(tool, { strict }),
+    diagnostics: [...checkTool(tool, { strict }), ...checkCacheControl(tool, options?.cacheControl)],
     options,
   });
 }
