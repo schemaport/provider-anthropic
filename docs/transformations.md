@@ -144,6 +144,29 @@ it as its own choice rather than inventing a citation — see
 
 ---
 
+## Prompt-caching transformations
+
+### `added-cache-control`
+
+- **Path:** `cache_control`
+- **Lossy:** no
+- **Emitted when:** `compile(tool, { cacheControl: ... })` requests a breakpoint.
+
+Adds `cache_control` to the tool definition, marking a prompt cache breakpoint.
+
+```json
+{ "cache_control": { "type": "ephemeral" } }
+{ "cache_control": { "type": "ephemeral", "ttl": "1h" } }
+```
+
+The field is added, nothing is removed and no constraint is weakened, so this is
+not lossy and needs no `allowLossy`. It is emitted last, after `strict`, and
+`ttl` is omitted rather than defaulted when it was not requested — both so that
+repeated compilations serialize byte-identically.
+
+Independent of `strict`: either, neither or both may be set. See
+[prompt-caching.md](prompt-caching.md).
+
 ## Why the default form drops nothing
 
 Anthropic's `input_schema` is an open JSON Schema object. The SDK types it as:
@@ -212,3 +235,4 @@ mode existed.
 | `closed-open-object` | never | per `additionalProperties: true` | no |
 | `added-additional-properties-false` | never | per object | no |
 | `required-every-property` | never | per object with optional properties | no |
+| `added-cache-control` | when `cacheControl` is set | when `cacheControl` is set | no |

@@ -152,6 +152,30 @@ package, not this one.
 Everything above is documented in detail, with sources, in
 [docs/limitations.md](docs/limitations.md).
 
+## Prompt caching
+
+Tool definitions sit at the front of the prompt and rarely change, which makes
+them worth caching. `cacheControl` emits the `cache_control` field that turns
+caching on:
+
+```ts
+anthropicProvider.compile(tool, { cacheControl: true });
+// { name, description, input_schema, cache_control: { type: 'ephemeral' } }
+
+compileTool(tool, { cacheControl: { type: 'ephemeral', ttl: '1h' } });
+```
+
+`cache_control` marks a **breakpoint**, which caches everything before and
+including the tool it sits on — so it belongs on the last stable tool in the
+`tools` array, not on each one. A request may carry at most four breakpoints,
+and a prefix below the model's minimum length is not cached at all. SchemaPort
+compiles one tool at a time and cannot check either, so it emits an `info`
+saying so whenever you ask for a breakpoint.
+
+Adding a breakpoint destroys no constraint, so it is not lossy and needs no
+`allowLossy`. Full details in
+[docs/prompt-caching.md](docs/prompt-caching.md).
+
 ## Documentation
 
 | Document | Contents |
@@ -159,6 +183,7 @@ Everything above is documented in detail, with sources, in
 | [docs/compatibility-rules.md](docs/compatibility-rules.md) | Every rule, its code, severity and compile behaviour |
 | [docs/transformations.md](docs/transformations.md) | Every transformation and its lossy classification |
 | [docs/limitations.md](docs/limitations.md) | Accepted-but-not-enforced keywords, the strict-mode trade-off, and what this package does not do |
+| [docs/prompt-caching.md](docs/prompt-caching.md) | `cacheControl`, breakpoint scope, the four-breakpoint and prefix-length limits |
 | [docs/probing.md](docs/probing.md) | Probe setup, model selection, exact commands, strict probes |
 | [docs/examples.md](docs/examples.md) | Worked examples against the shared fixtures |
 | [docs/sources.md](docs/sources.md) | Every official documentation URL the rules came from |
@@ -191,6 +216,8 @@ Strict-mode only — emitted by `check(tool, { strict: true })` and
 | `anthropic/strict-closed-open-object` | warning |
 | `anthropic/strict-keyword-undocumented` | warning |
 | `anthropic/strict-local-ref` | warning |
+| `anthropic/cache-control-breakpoint-scope` | info |
+| `anthropic/cache-control-invalid-ttl` | warning |
 
 ## Development
 

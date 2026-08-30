@@ -285,6 +285,20 @@ honours them, and the request may be rejected with a 400. They are kept rather
 than dropped, because dropping a keyword the documentation does not reject would
 destroy a constraint for a reason this package cannot cite.
 
+### `anthropic/cache-control-invalid-ttl`
+
+- **Severity:** warning
+- **Path:** `cacheControl.ttl`
+- **Compile:** supported — `ttl` is dropped, `cache_control` is still emitted.
+
+`cacheControl.ttl` is a value the Messages API does not document. Only `5m` and
+`1h` are accepted; anything else is a 400 on the whole request. SchemaPort drops
+the value rather than forwarding it, because a rejected request costs you the
+tool definition as well as the caching you asked for, and the 5-minute default
+is the closer outcome to what you wanted. TypeScript rules this out already —
+the rule exists for JavaScript callers and for values arriving from
+configuration.
+
 ### `anthropic/strict-local-ref`
 
 - **Severity:** warning
@@ -300,6 +314,23 @@ non-recursive.
 ---
 
 ## Info
+
+### `anthropic/cache-control-breakpoint-scope`
+
+- **Path:** `cacheControl`
+- **Compile:** supported — `cache_control` is emitted exactly as requested.
+
+Emitted whenever a cache breakpoint is requested. `cache_control` marks a
+breakpoint that caches every block *before and including* the tool it sits on,
+so it belongs on the last stable tool in a `tools` array rather than on each
+one. Two limits apply to the assembled request and SchemaPort can verify
+neither, because it compiles one tool at a time: a request may carry at most
+four breakpoints, and a prefix shorter than the model's minimum cacheable
+length is not cached at all — silently, with no error and no saving.
+
+The rule is advisory. It does not mean the breakpoint is wrong; it means
+SchemaPort cannot confirm it is right from where it stands. See
+[prompt-caching.md](prompt-caching.md).
 
 ### `anthropic/missing-tool-description`
 
