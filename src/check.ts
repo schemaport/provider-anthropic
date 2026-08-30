@@ -304,7 +304,12 @@ function checkStrictSubschema(schema: JsonSchema, path: string, add: Add): void 
   for (const keyword of NEVER_ENFORCED_KEYWORDS) {
     if (schema[keyword] === undefined) continue;
     const rejected = strictRejectedClass(keyword);
-    if (rejected === undefined) continue;
+    // `NEVER_ENFORCED_KEYWORDS` is derived from `STRICT_REJECTED_KEYWORDS`, so
+    // every keyword reaching here has a class. Falling through silently would
+    // make strict mode quieter about a keyword than the default mode is, which
+    // is backwards — so say so instead of skipping.
+    /* c8 ignore next */
+    if (rejected === undefined) throw new Error(`No strict class for keyword \`${keyword}\`.`);
     add(strictDropsConstraint(keyword, rejected, joinPath(path, keyword)));
   }
 
